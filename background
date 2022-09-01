@@ -1,0 +1,33 @@
+
+&rtp
+
+apis:
+* runtime
+* packadd
+* packloadall
+
+rtp_spec.lua
+* order matters
+* dependency
+
+sources:
+* local disk
+* git repo
+    * git subtree: full copy of plugins
+
+suffixes: .vim, .lua
+
+disk path: author/package/version
+* haolian9/x@rev # branch?
+* anotherone/x@rev
+
+optimizations:
+* squash plugin dirs for faster rtp loopkup
+    * autoload
+    * ftplugin
+    * ftdetect
+    * plugin
+    * syntax
+    * ...
+* impatient.nvim
+

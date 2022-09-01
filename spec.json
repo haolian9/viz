@@ -1,0 +1,8 @@
+{
+    root: "~/.local/share/nvim/viz",
+    plugins: [
+        {name: "plenary", repo: "https://github.com/haolian9/kite.nvim.git", branch: "master"},
+        {name: "kite", repo: "https://github.com/haolian9/kite.nvim.git", branch: "master", depends = ["plenary"]},
+        {name: "viz", repo: "https://github.com/haolian9/kite.nvim.git", branch: "master", depends = ["kite"]}
+    ]
+}
