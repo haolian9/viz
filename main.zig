@@ -2,7 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 const assert = std.debug.assert;
 
-const Repo = union {
+const Repo = union(enum) {
     git: Git,
     dir: Dir,
 
@@ -13,16 +13,14 @@ const Repo = union {
         root: []const u8,
         project: []const u8,
 
-        fn asstr(self: Git, buf: *[maxsize]u8) ![]const u8 {
-            return try std.fmt.bufPrint(buf, "{}{}{}", .{ self.root, std.fs.path.sep, self.project });
-        }
-
+        /// :path: /srv/playground/viz
         fn init(path: []const u8) !Dir {
-            // /srv/playground/viz
             if (!std.mem.startsWith(u8, path, "/")) return error.NotAbsolutePath;
             if (std.mem.endsWith(u8, path, "/")) return error.PathTrailingSlash;
-            const sep = if (std.mem.lastIndexOf(u8, path, "/")) |pos| pos else return error.PathMissingRoot;
-            return .{ .uri = path, .root = path[0..sep], .project = path[sep + 1 ..] };
+
+            const sep = if (std.mem.lastIndexOf(u8, path, "/")) |idx| idx else return error.PathMissingRoot;
+
+            return Dir{ .uri = path, .root = path[0..sep], .project = path[sep + 1 ..] };
         }
     };
 
@@ -32,9 +30,8 @@ const Repo = union {
         base: []const u8,
         user: []const u8,
         project: []const u8,
-        branch: []const u8,
+        branch: ?[]const u8,
 
-        // todo: git protocol
         const Protocol = enum {
             https,
             http,
@@ -56,11 +53,7 @@ const Repo = union {
             }
         };
 
-        fn asstr(self: Git, buf: *[maxsize]u8) ![]const u8 {
-            return try std.fmt.bufPrint(buf, "{s}{s}{s}{s}/{s}", .{ self.protocol.prefix(), self.base, self.protocol.sep1(), self.user, self.project });
-        }
-
-        fn init(uri: []const u8, branch: []const u8) !Git {
+        fn init(uri: []const u8, branch: ?[]const u8) !Git {
             // git@gitlab.com:haoliang-incubator/viz.git
             // https://gitlab.com/haoliang-incubator/viz.git
             // git@github.com:haolian9/kite.nvim.git
@@ -89,12 +82,11 @@ const Repo = union {
             const user = uri[user_start..user_end];
 
             const project_start = user_end + 1;
-            // todo: purify
             const project_end = uri.len;
             if (project_start == project_end) return error.UriMissingProject;
             const project = uri[project_start..project_end];
 
-            return .{
+            return Git{
                 .uri = uri,
                 .protocol = protocol,
                 .base = base,
@@ -109,33 +101,65 @@ const Repo = union {
 const Plugin = struct {
     /// unique name
     name: []const u8,
-    // entry dir in repo
-    entry: ?[]const u8 = null,
+    /// entry dir in the repo
+    entry: []const u8,
     repo: Repo,
-    // todo: detect cyclic depends, but does it really matter in the perspective of a nvim plugin manager?
-    //depends: ?[]const *const Plugin = null,
-    depends: ?[]const []const u8 = null,
+
+    const InitParams = struct {
+        uri: []const u8,
+        name: ?[]const u8 = null,
+        entry: ?[]const u8 = null,
+        branch: ?[]const u8 = null,
+    };
+
+    fn init(params: InitParams) !Plugin {
+        var repo: Repo = undefined;
+        var name: []const u8 = undefined;
+        if (std.mem.startsWith(u8, params.uri, "/")) {
+            if (params.branch != null) unreachable;
+            repo = .{ .dir = try Repo.Dir.init(params.uri) };
+            name = repo.dir.project;
+            print("xxx 1: repo.dir, repo={any}\n", .{repo.dir.uri});
+        } else {
+            repo = .{ .git = try Repo.Git.init(params.uri, params.branch) };
+            name = repo.git.project;
+            print("xxx 1: repo.git, repo={any}\n", .{repo.git.uri});
+        }
+        var entry = if (params.entry) |entry| entry else "/";
+
+        return Plugin{
+            .name = name,
+            .entry = entry,
+            .repo = repo,
+        };
+    }
 };
 
 const Spec = struct {
+    allocator: std.mem.Allocator,
     // the dir to save all the files of plugins.
     root: []const u8,
     plugins: PluginTable,
 
     const PluginTable = std.StringHashMap(Plugin);
 
-    // todo: []*const Plugin
-    fn init(allocator: std.mem.Allocator, root: []const u8, plugins: []*Plugin) !Spec {
+    fn init(allocator: std.mem.Allocator, root: []const u8, plugins: []const Plugin.InitParams) !Spec {
         var ptable = PluginTable.init(allocator);
         errdefer ptable.deinit();
-        for (plugins) |p| {
-            print("{s}: {any}\n", .{ p.name, @TypeOf(p) });
+
+        for (plugins) |pargs| {
+            const p = try Plugin.init(pargs);
+            // print("xxx 2: {}; {any}\n", .{ @ptrToInt(&p.repo), p.repo.git.uri });
             var gop = try ptable.getOrPut(p.name);
             if (gop.found_existing) return error.DuplicatePluginsFound;
-            gop.value_ptr = p;
+            gop.value_ptr.* = p;
         }
 
-        return Spec{ .root = root, .plugins = ptable };
+        return Spec{ .allocator = allocator, .root = root, .plugins = ptable };
+    }
+
+    fn deinit(self: *Spec) void {
+        self.plugins.deinit();
     }
 };
 
@@ -143,33 +167,38 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(!gpa.deinit());
 
+    // var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    // defer arena.deinit();
+    // const allocator = arena.allocator();
     const allocator = gpa.allocator();
 
-    // todo: default branch
-    // todo: default name
-    var plenary = try allocator.create(Plugin);
-    defer allocator.destroy(plenary);
-    plenary.* = .{
-        .name = "plenary",
-        .repo = .{ .git = try Repo.Git.init("https://github.com/haolian9/kite.nvim.git", "master") },
-    };
-    var kite = try allocator.create(Plugin);
-    defer allocator.destroy(kite);
-    kite.* = .{
-        .name = "kite",
-        .repo = .{ .git = try Repo.Git.init("https://github.com/haolian9/kite.nvim.git", "master") },
-        .depends = &.{"plenary"},
-    };
-    var viz = try allocator.create(Plugin);
-    defer allocator.destroy(viz);
-    viz.* = .{
-        .name = "viz",
-        .repo = .{ .git = try Repo.Git.init("https://github.com/haolian9/kite.nvim.git", "master") },
-        .depends = &.{"plenary"},
-    };
+    var spec = try Spec.init(allocator, "/tmp/viz", &.{
+        .{ .uri = "https://github.com/lewis6991/impatient.nvim" },
+        .{ .uri = "https://github.com/tpope/vim-repeat" },
+        .{ .uri = "https://github.com/phaazon/hop.nvim" },
+    });
+    defer spec.deinit();
 
-    var spec = try Spec.init(allocator, "/tmp/viz", &.{ plenary, kite, viz });
-    defer spec.plugins.deinit();
+    {
+        var iter = spec.plugins.iterator();
+        while (iter.next()) |entry| {
+            switch (entry.value_ptr.repo) {
+                .git => |git| print("xxx 0: {s} -> {any}\n", .{ entry.key_ptr.*, git }),
+                .dir => |dir| print("xxx 0: {s} -> {any}\n", .{ entry.key_ptr.*, dir }),
+            }
+        }
+    }
+}
 
-    print("{any}", .{spec});
+test "Plugin.init" {
+    const p1 = try Plugin.init(.{ .uri = "https://github.com/lewis6991/impatient.nvim" });
+    const p2 = try Plugin.init(.{ .uri = "https://github.com/tpope/vim-repeat" });
+    const p3 = try Plugin.init(.{ .uri = "https://github.com/phaazon/hop.nvim" });
+
+    inline for (.{ p1, p2, p3 }) |p| {
+        switch (p.repo) {
+            .git => |git| print("xxx 0: {any}\n", .{git}),
+            .dir => |dir| print("xxx 0: {any}\n", .{dir}),
+        }
+    }
 }

@@ -1,33 +1,84 @@
 
 &rtp
+* stdpath(config)
+* stdpath(data)/site
+* $runtime
+* stdpath(data)/site/after
+* stdpath(config)/after
+
+:h packages
+* &packpath
+* stdpath('data')/site/pack/*/start/*
+    * packadd
+    * packloadall
 
 apis:
 * runtime
-* packadd
-* packloadall
-
-rtp_spec.lua
-* order matters
-* dependency
-
-sources:
-* local disk
-* git repo
-    * git subtree: full copy of plugins
+* --
+* api.nvim_list_runtime_paths
+* api.nvim_get_runtime_file
+    * api.nvim_get_runtime_file('lua/', true)
+* nvim/runtime.c :: runtime_search_path_build
+    * api/vim.c -> nvim_list_runtime_paths -> nvim_get_runtime_file -> do_in_runtimepath
+    * ex_runtime -> source_runtime -> do_in_runtimepath -> do_in_cached_path -> runtime_search_path_get_cached -> runtime_search_path_build
 
 suffixes: .vim, .lua
 
-disk path: author/package/version
-* haolian9/x@rev # branch?
-* anotherone/x@rev
-
 optimizations:
-* squash plugin dirs for faster rtp loopkup
-    * autoload
-    * ftplugin
-    * ftdetect
-    * plugin
-    * syntax
-    * ...
+* squash/compact plugin dirs for faster rtp loopkup
+    * ./ or after/
+        * autoload
+        * ftplugin
+        * ftdetect
+        * plugin
+        * syntax
+        * ~doc~
+        * ~pack~
+        * ~tutor~
+        * ~indent~
+        * ...
+    * ~site~
+    * ~site/after~
+    * lua?
 * impatient.nvim
+
+spec.json
+* why json?
+    * zig has builtin support for json serialization
+    * i can not find a mature toml parser
+    * MVP first
+* ref:
+    * [go.mod spec](https://go.dev/doc/modules/gomod-ref)
+    * [cargo.toml](https://doc.rust-lang.org/cargo/reference/manifest.html)
+* features
+    * local
+    * git: branch, rev
+        * git subtree
+    * depends
+    * include/exclude
+    * entry dir
+* storage layout
+    * disk path: author/package/version
+        * haolian9/x@rev # branch?
+        * anotherone/x@rev
+
+nvim -u NONE +':lua =vim.api.nvim_list_runtime_paths()'
+* a) /home/haoliang/.config/nvim
+* b) /etc/xdg/nvim
+* d) /opt/nvim-v0.8.0-dev-1003-ga62cb406b/share/nvim/runtime
+* e) /lib/nvim
+* f) /home/haoliang/.config/nvim/after
+and `echo &ftp`
+* a) /home/haoliang/.config/nvim
+* b) /etc/xdg/nvim
+* c) /home/haoliang/.local/share/nvim/site
+* c) /usr/local/share/nvim/site
+* c) /usr/share/nvim/site
+* d) /opt/nvim-v0.8.0-dev-1003-ga62cb406b/share/nvim/runtime
+* e) /lib/nvim
+* f) /usr/share/nvim/site/after
+* f) /usr/local/share/nvim/site/after
+* f) /home/haoliang/.local/share/nvim/site/after
+* f) /etc/xdg/nvim/after
+* f) /home/haoliang/.config/nvim/after
 
