@@ -1,9 +1,10 @@
 const std = @import("std");
 const print = std.debug.print;
 const assert = std.debug.assert;
+const log = std.log;
+
 const specs = @import("specs.zig");
 const Manager = @import("Manager.zig");
-const log = std.log;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -11,54 +12,46 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    var spec = try specs.Spec.init(allocator, "/home/haoliang/.local/share/nvim/viz", &.{
-        // base
-        .{ .uri = "https://github.com/lewis6991/impatient.nvim" },
-        .{ .uri = "https://github.com/tpope/vim-repeat" },
-        .{ .uri = "https://github.com/phaazon/hop.nvim" },
-        .{ .uri = "https://github.com/junegunn/vim-easy-align" },
-        .{ .uri = "https://github.com/michaeljsmith/vim-indent-object" },
-        .{ .uri = "https://github.com/tpope/vim-surround" },
+    var spec = try specs.Spec.init(allocator, &.{.base}, "/home/haoliang/.local/share/nvim/viz", &.{
+        .{ .profile = .base, .uri = "https://github.com/lewis6991/impatient.nvim" },
+        .{ .profile = .base, .uri = "https://github.com/tpope/vim-repeat" },
+        .{ .profile = .base, .uri = "https://github.com/phaazon/hop.nvim" },
+        .{ .profile = .base, .uri = "https://github.com/junegunn/vim-easy-align" },
+        .{ .profile = .base, .uri = "https://github.com/michaeljsmith/vim-indent-object" },
+        .{ .profile = .base, .uri = "https://github.com/tpope/vim-surround" },
 
-        // lsp
-        .{ .uri = "https://github.com/neovim/nvim-lspconfig" },
-        .{ .uri = "https://github.com/nvim-lua/plenary.nvim" },
-        // .{.uri = "https://github.com/jose-elias-alvarez/null-ls.nvim"},
-        //.{ .uri = "/srv/playground/null-ls.nvim" },
-        .{ .uri = "https://github.com/haolian9/null-ls.nvim", .branch = "hal", .as = "null-ls-hal" },
+        .{ .profile = .lsp, .uri = "https://github.com/neovim/nvim-lspconfig" },
+        .{ .profile = .lsp, .uri = "https://github.com/nvim-lua/plenary.nvim" },
+        // .{ .profile = .lsp, .uri = "https://github.com/jose-elias-alvarez/null-ls.nvim" },
+        .{ .profile = .lsp, .uri = "/srv/playground/null-ls.nvim" },
+        // .{ .profile = .lsp, .uri = "https://github.com/haolian9/null-ls.nvim", .branch = "hal", .as = "null-ls-hal" },
 
-        // treesitter
-        // .{ .uri = "https://github.com/nvim-treesitter/nvim-treesitter" },
-        .{ .uri = "https://github.com/haolian9/nvim-treesitter", .branch = "hal", .as = "nvim-treesitter-hal" },
-        //.{ .uri = "https://github.com/nvim-treesitter/nvim-treesitter-refactor" },
-        .{ .uri = "https://github.com/haolian9/nvim-treesitter-refactor", .branch = "hal", .as = "nvim-treesitter-refactor-hal" },
-        // .{.uri = "https://github.com/nvim-treesitter/nvim-treesitter-textobjects"},
-        .{ .uri = "https://github.com/haolian9/nvim-treesitter-textobjects", .branch = "hal", .as = "nvim-treesitter-textobjects-hal" },
-        .{ .uri = "https://github.com/nvim-treesitter/playground" },
+        // .{ .profile = .treesitter, .uri = "https://github.com/nvim-treesitter/nvim-treesitter" },
+        .{ .profile = .treesitter, .uri = "https://github.com/haolian9/nvim-treesitter", .branch = "hal", .as = "nvim-treesitter-hal" },
+        // .{ .profile = .treesitter, .uri = "https://github.com/nvim-treesitter/nvim-treesitter-refactor" },
+        .{ .profile = .treesitter, .uri = "https://github.com/haolian9/nvim-treesitter-refactor", .branch = "hal", .as = "nvim-treesitter-refactor-hal" },
+        // .{ .profile = .treesitter, .uri = "https://github.com/nvim-treesitter/nvim-treesitter-textobjects" },
+        .{ .profile = .treesitter, .uri = "https://github.com/haolian9/nvim-treesitter-textobjects", .branch = "hal", .as = "nvim-treesitter-textobjects-hal" },
+        .{ .profile = .treesitter, .uri = "https://github.com/nvim-treesitter/playground" },
 
-        // code
-        // .{.uri = "https://github.com/ibhagwan/fzf-lua"},
-        // .{.uri = "/srv/playground/fzf-lua"},
-        .{ .uri = "https://github.com/haolian9/fzf-lua", .branch = "hal", .as = "fzf-lua-hal" },
-        .{ .uri = "https://github.com/SirVer/ultisnips" },
-        .{ .uri = "https://github.com/skywind3000/asyncrun.vim" },
-        .{ .uri = "https://github.com/tpope/vim-commentary" },
+        // .{ .profile = .code, .uri = "https://github.com/ibhagwan/fzf-lua" },
+        // .{ .profile = .code, .uri = "/srv/playground/fzf-lua" },
+        .{ .profile = .code, .uri = "https://github.com/haolian9/fzf-lua", .branch = "hal", .as = "fzf-lua-hal" },
+        .{ .profile = .code, .uri = "https://github.com/SirVer/ultisnips" },
+        .{ .profile = .code, .uri = "https://github.com/skywind3000/asyncrun.vim" },
+        .{ .profile = .code, .uri = "https://github.com/tpope/vim-commentary" },
 
-        // git
-        .{ .uri = "https://github.com/tpope/vim-fugitive" },
-        .{ .uri = "https://github.com/junegunn/gv.vim" },
+        .{ .profile = .git, .uri = "https://github.com/tpope/vim-fugitive" },
+        .{ .profile = .git, .uri = "https://github.com/junegunn/gv.vim" },
 
-        // wiki
-        .{ .uri = "https://github.com/vimwiki/vimwiki" },
+        .{ .profile = .wiki, .uri = "https://github.com/vimwiki/vimwiki" },
     });
     defer spec.deinit();
 
-    // var plugin_iter = spec.plugins.iterator();
-    // while (plugin_iter.next()) |entry| {
-    //     log.debug("xx * {s}", .{entry.value_ptr.name});
-    // }
+    // var manager = Manager{ .allocator = allocator, .spec = spec };
+    // try manager.install();
 
-    var manager = Manager{ .allocator = allocator, .spec = spec };
-
-    try manager.install();
+    var rtp = try specs.VimRtp.fromSpec(allocator, spec);
+    defer rtp.deinit();
+    try rtp.dump(std.io.getStdOut().writer());
 }

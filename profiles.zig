@@ -3,7 +3,7 @@ const print = std.debug.print;
 const assert = std.debug.assert;
 const testing = std.testing;
 
-const bits = usize;
+pub const bits = usize;
 const nbits = std.math.Log2Int(bits);
 
 // zig fmt: off
@@ -84,6 +84,25 @@ pub const Profile = enum(bits) {
         return val;
     }
 };
+
+pub const Profiles = struct {
+    val: bits,
+
+    const Self = @This();
+
+    pub fn init(profiles: []const Profile) Profiles {
+        var val: bits = 0;
+        for (profiles) |p| {
+            val |= @enumToInt(p);
+        }
+        return .{.val = val};
+    }
+
+    pub fn has(self: Profiles, profile: Profile) bool {
+        return self.val & @enumToInt(profile) == @enumToInt(profile);
+    }
+};
+
 
 pub fn main() !void {
     print("base=({d}, {d}, {d}), code={d}, mostbeloved={d}\n", .{

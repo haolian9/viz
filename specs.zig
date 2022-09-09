@@ -2,6 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 const assert = std.debug.assert;
 const testing = std.testing;
+const profile_types = @import("profiles.zig");
 
 pub const Repo = union(enum) {
     git: Git,
@@ -101,15 +102,17 @@ pub const Repo = union(enum) {
     };
 };
 
+// todo: hook
 pub const Plugin = struct {
+    profile: profile_types.Profile,
     /// unique name
     name: []const u8,
     /// entry dir in the repo
     entry: []const u8,
     repo: Repo,
-    // todo: hook
 
     pub const InitParams = struct {
+        profile: profile_types.Profile,
         uri: []const u8,
         name: ?[]const u8 = null,
         entry: ?[]const u8 = null,
@@ -131,6 +134,7 @@ pub const Plugin = struct {
         var entry = if (params.entry) |entry| entry else "/";
 
         return Plugin{
+            .profile = params.profile,
             .name = name,
             .entry = entry,
             .repo = repo,
@@ -143,25 +147,102 @@ pub const Spec = struct {
     // the dir to save all the files of plugins.
     root: []const u8,
     plugins: PluginTable,
+    orders: std.ArrayList([]const u8),
+    profiles: profile_types.Profiles,
 
     const PluginTable = std.StringHashMap(Plugin);
 
-    pub fn init(allocator: std.mem.Allocator, root: []const u8, plugins: []const Plugin.InitParams) !Spec {
+    pub fn init(allocator: std.mem.Allocator, profiles: []const profile_types.Profile, root: []const u8, plugins: []const Plugin.InitParams) !Spec {
+        const pros = profile_types.Profiles.init(profiles);
+
         var ptable = PluginTable.init(allocator);
         errdefer ptable.deinit();
 
+        var orders = std.ArrayList([]const u8).init(allocator);
+        errdefer orders.deinit();
+
         for (plugins) |pargs| {
             const p = try Plugin.init(pargs);
+            try orders.append(p.name);
             const gop = try ptable.getOrPut(p.name);
             if (gop.found_existing) return error.DuplicatePluginsFound;
             gop.value_ptr.* = p;
         }
 
-        return Spec{ .allocator = allocator, .root = root, .plugins = ptable };
+        return Spec{ .allocator = allocator, .root = root, .plugins = ptable, .orders = orders, .profiles = pros };
+    }
+
+    const Iterator = struct {
+        context: Spec,
+        index: usize,
+
+        pub fn next(self: *Iterator) ?Plugin {
+            while (self.index < self.context.orders.items.len) {
+                defer self.index += 1;
+                const name = self.context.orders.items[self.index];
+                const plugin = self.context.plugins.get(name).?;
+                if (self.context.profiles.has(plugin.profile)) return plugin;
+            }
+            return null;
+        }
+    };
+
+    pub fn iterator(self: Spec) Iterator {
+        return .{ .context = self, .index = 0 };
     }
 
     pub fn deinit(self: *Spec) void {
         self.plugins.deinit();
+        self.orders.deinit();
+    }
+};
+
+pub const VimRtp = struct {
+    allocator: std.mem.Allocator,
+    paths: std.ArrayList([]const u8),
+
+    const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator) VimRtp {
+        var paths = std.ArrayList([]const u8).init(allocator);
+        return .{
+            .allocator = allocator,
+            .paths = paths,
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        for (self.paths.items) |path| self.allocator.free(path);
+        self.paths.deinit();
+    }
+
+    pub fn append(self: *Self, parts: []const []const u8) !void {
+        const path = try std.fs.path.join(self.allocator, parts);
+        try self.paths.append(path);
+    }
+
+    pub fn dump(self: Self, writer: anytype) !void {
+        try std.json.stringify(self.paths.items, .{}, writer);
+    }
+
+    pub fn fromSpec(allocator: std.mem.Allocator, spec: Spec) !VimRtp {
+        var rtp = VimRtp.init(allocator);
+        errdefer rtp.deinit();
+
+        var iter = spec.iterator();
+        while (iter.next()) |plugin| {
+            switch (plugin.repo) {
+                .git => |repo| {
+                    const as = if (repo.as) |as| as else plugin.name;
+                    try rtp.append(&.{ spec.root, as });
+                },
+                .dir => |repo| {
+                    try rtp.append(&.{repo.uri});
+                },
+            }
+        }
+
+        return rtp;
     }
 };
 

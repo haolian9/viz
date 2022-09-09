@@ -1,6 +1,7 @@
 const specs = @import("specs.zig");
 const std = @import("std");
 const log = std.log;
+const profiles = @import("profiles.zig");
 
 const Manager = @This();
 const Self = @This();
@@ -10,10 +11,8 @@ spec: specs.Spec,
 
 pub fn install(self: *Self) !void {
     log.debug("have {d} plugins", .{self.spec.plugins.count()});
-    var iter = self.spec.plugins.iterator();
-    while (iter.next()) |entry| {
-        const plugin = entry.value_ptr.*;
-
+    var iter = self.spec.iterator();
+    while (iter.next()) |plugin| {
         switch (plugin.repo) {
             .git => |repo| {
                 var args: ExecuteParams = blk: {
@@ -52,9 +51,8 @@ pub fn install(self: *Self) !void {
 }
 
 pub fn update(self: *Self) !void {
-    var iter = self.spec.plugins.iterator();
-    while (iter.next()) |entry| {
-        const plugin = entry.value_ptr.*;
+    var iter = self.spec.iterator();
+    while (iter.next()) |plugin| {
         switch (plugin.repo) {
             .git => |repo| {
                 var args: ExecuteParams = args: {
