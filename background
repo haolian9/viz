@@ -1,9 +1,5 @@
-
-&rtp
 * stdpath(config)
 * stdpath(data)/site
-* $runtime
-* stdpath(data)/site/after
 * stdpath(config)/after
 
 :h packages

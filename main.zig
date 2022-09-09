@@ -1,204 +1,64 @@
 const std = @import("std");
 const print = std.debug.print;
 const assert = std.debug.assert;
-
-const Repo = union(enum) {
-    git: Git,
-    dir: Dir,
-
-    const maxsize = std.fs.MAX_PATH_BYTES;
-
-    const Dir = struct {
-        uri: []const u8,
-        root: []const u8,
-        project: []const u8,
-
-        /// :path: /srv/playground/viz
-        fn init(path: []const u8) !Dir {
-            if (!std.mem.startsWith(u8, path, "/")) return error.NotAbsolutePath;
-            if (std.mem.endsWith(u8, path, "/")) return error.PathTrailingSlash;
-
-            const sep = if (std.mem.lastIndexOf(u8, path, "/")) |idx| idx else return error.PathMissingRoot;
-
-            return Dir{ .uri = path, .root = path[0..sep], .project = path[sep + 1 ..] };
-        }
-    };
-
-    const Git = struct {
-        uri: []const u8,
-        protocol: Protocol,
-        base: []const u8,
-        user: []const u8,
-        project: []const u8,
-        branch: ?[]const u8,
-
-        const Protocol = enum {
-            https,
-            http,
-            git,
-
-            fn prefix(self: Protocol) []const u8 {
-                return switch (self) {
-                    .https => "https://",
-                    .http => "http://",
-                    .git => "git@",
-                };
-            }
-
-            fn sep1(self: Protocol) []const u8 {
-                return switch (self) {
-                    .https, .http => "/",
-                    .git => ":",
-                };
-            }
-        };
-
-        fn init(uri: []const u8, branch: ?[]const u8) !Git {
-            // git@gitlab.com:haoliang-incubator/viz.git
-            // https://gitlab.com/haoliang-incubator/viz.git
-            // git@github.com:haolian9/kite.nvim.git
-            // https://github.com/haolian9/kite.nvim.git
-            var protocol: Protocol = undefined;
-            var tokens: [3][]const u8 = undefined;
-            if (std.mem.startsWith(u8, uri, "git@")) {
-                protocol = .git;
-                tokens = .{ "git@", ":", "/" };
-            } else if (std.mem.startsWith(u8, uri, "https://")) {
-                protocol = .https;
-                tokens = .{ "https://", "/", "/" };
-            } else if (std.mem.startsWith(u8, uri, "http://")) {
-                protocol = .http;
-                tokens = .{ "http://", "/", "/" };
-            } else return error.UnsupportedUri;
-
-            const base_start = tokens[0].len + 1;
-            const base_end = if (std.mem.indexOfPos(u8, uri, base_start, tokens[1])) |base_end| base_end else return error.UriMissingBase;
-            if (base_start == base_end) return error.UriMissingBase;
-            const base = uri[base_start..base_end];
-
-            const user_start = base_end + 1;
-            const user_end = if (std.mem.indexOfPos(u8, uri, user_start, tokens[2])) |index| index else return error.UriMissingUser;
-            if (user_start == user_end) return error.UriMissingUser;
-            const user = uri[user_start..user_end];
-
-            const project_start = user_end + 1;
-            const project_end = uri.len;
-            if (project_start == project_end) return error.UriMissingProject;
-            const project = uri[project_start..project_end];
-
-            return Git{
-                .uri = uri,
-                .protocol = protocol,
-                .base = base,
-                .user = user,
-                .project = project,
-                .branch = branch,
-            };
-        }
-    };
-};
-
-const Plugin = struct {
-    /// unique name
-    name: []const u8,
-    /// entry dir in the repo
-    entry: []const u8,
-    repo: Repo,
-
-    const InitParams = struct {
-        uri: []const u8,
-        name: ?[]const u8 = null,
-        entry: ?[]const u8 = null,
-        branch: ?[]const u8 = null,
-    };
-
-    fn init(params: InitParams) !Plugin {
-        var repo: Repo = undefined;
-        var name: []const u8 = undefined;
-        if (std.mem.startsWith(u8, params.uri, "/")) {
-            if (params.branch != null) unreachable;
-            repo = .{ .dir = try Repo.Dir.init(params.uri) };
-            name = repo.dir.project;
-            print("xxx 1: repo.dir, repo={any}\n", .{repo.dir.uri});
-        } else {
-            repo = .{ .git = try Repo.Git.init(params.uri, params.branch) };
-            name = repo.git.project;
-            print("xxx 1: repo.git, repo={any}\n", .{repo.git.uri});
-        }
-        var entry = if (params.entry) |entry| entry else "/";
-
-        return Plugin{
-            .name = name,
-            .entry = entry,
-            .repo = repo,
-        };
-    }
-};
-
-const Spec = struct {
-    allocator: std.mem.Allocator,
-    // the dir to save all the files of plugins.
-    root: []const u8,
-    plugins: PluginTable,
-
-    const PluginTable = std.StringHashMap(Plugin);
-
-    fn init(allocator: std.mem.Allocator, root: []const u8, plugins: []const Plugin.InitParams) !Spec {
-        var ptable = PluginTable.init(allocator);
-        errdefer ptable.deinit();
-
-        for (plugins) |pargs| {
-            const p = try Plugin.init(pargs);
-            // print("xxx 2: {}; {any}\n", .{ @ptrToInt(&p.repo), p.repo.git.uri });
-            var gop = try ptable.getOrPut(p.name);
-            if (gop.found_existing) return error.DuplicatePluginsFound;
-            gop.value_ptr.* = p;
-        }
-
-        return Spec{ .allocator = allocator, .root = root, .plugins = ptable };
-    }
-
-    fn deinit(self: *Spec) void {
-        self.plugins.deinit();
-    }
-};
+const specs = @import("specs.zig");
+const Manager = @import("Manager.zig");
+const log = std.log;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer assert(!gpa.deinit());
 
-    // var arena = std.heap.ArenaAllocator.init(gpa.allocator());
-    // defer arena.deinit();
-    // const allocator = arena.allocator();
     const allocator = gpa.allocator();
 
-    var spec = try Spec.init(allocator, "/tmp/viz", &.{
+    var spec = try specs.Spec.init(allocator, "/home/haoliang/.local/share/nvim/viz", &.{
+        // base
         .{ .uri = "https://github.com/lewis6991/impatient.nvim" },
         .{ .uri = "https://github.com/tpope/vim-repeat" },
         .{ .uri = "https://github.com/phaazon/hop.nvim" },
+        .{ .uri = "https://github.com/junegunn/vim-easy-align" },
+        .{ .uri = "https://github.com/michaeljsmith/vim-indent-object" },
+        .{ .uri = "https://github.com/tpope/vim-surround" },
+
+        // lsp
+        .{ .uri = "https://github.com/neovim/nvim-lspconfig" },
+        .{ .uri = "https://github.com/nvim-lua/plenary.nvim" },
+        // .{.uri = "https://github.com/jose-elias-alvarez/null-ls.nvim"},
+        //.{ .uri = "/srv/playground/null-ls.nvim" },
+        .{ .uri = "https://github.com/haolian9/null-ls.nvim", .branch = "hal", .as = "null-ls-hal" },
+
+        // treesitter
+        // .{ .uri = "https://github.com/nvim-treesitter/nvim-treesitter" },
+        .{ .uri = "https://github.com/haolian9/nvim-treesitter", .branch = "hal", .as = "nvim-treesitter-hal" },
+        //.{ .uri = "https://github.com/nvim-treesitter/nvim-treesitter-refactor" },
+        .{ .uri = "https://github.com/haolian9/nvim-treesitter-refactor", .branch = "hal", .as = "nvim-treesitter-refactor-hal" },
+        // .{.uri = "https://github.com/nvim-treesitter/nvim-treesitter-textobjects"},
+        .{ .uri = "https://github.com/haolian9/nvim-treesitter-textobjects", .branch = "hal", .as = "nvim-treesitter-textobjects-hal" },
+        .{ .uri = "https://github.com/nvim-treesitter/playground" },
+
+        // code
+        // .{.uri = "https://github.com/ibhagwan/fzf-lua"},
+        // .{.uri = "/srv/playground/fzf-lua"},
+        .{ .uri = "https://github.com/haolian9/fzf-lua", .branch = "hal", .as = "fzf-lua-hal" },
+        .{ .uri = "https://github.com/SirVer/ultisnips" },
+        .{ .uri = "https://github.com/skywind3000/asyncrun.vim" },
+        .{ .uri = "https://github.com/tpope/vim-commentary" },
+
+        // git
+        .{ .uri = "https://github.com/tpope/vim-fugitive" },
+        .{ .uri = "https://github.com/junegunn/gv.vim" },
+
+        // wiki
+        .{ .uri = "https://github.com/vimwiki/vimwiki" },
     });
     defer spec.deinit();
 
-    {
-        var iter = spec.plugins.iterator();
-        while (iter.next()) |entry| {
-            switch (entry.value_ptr.repo) {
-                .git => |git| print("xxx 0: {s} -> {any}\n", .{ entry.key_ptr.*, git }),
-                .dir => |dir| print("xxx 0: {s} -> {any}\n", .{ entry.key_ptr.*, dir }),
-            }
-        }
-    }
-}
+    // var plugin_iter = spec.plugins.iterator();
+    // while (plugin_iter.next()) |entry| {
+    //     log.debug("xx * {s}", .{entry.value_ptr.name});
+    // }
 
-test "Plugin.init" {
-    const p1 = try Plugin.init(.{ .uri = "https://github.com/lewis6991/impatient.nvim" });
-    const p2 = try Plugin.init(.{ .uri = "https://github.com/tpope/vim-repeat" });
-    const p3 = try Plugin.init(.{ .uri = "https://github.com/phaazon/hop.nvim" });
+    var manager = Manager{ .allocator = allocator, .spec = spec };
 
-    inline for (.{ p1, p2, p3 }) |p| {
-        switch (p.repo) {
-            .git => |git| print("xxx 0: {any}\n", .{git}),
-            .dir => |dir| print("xxx 0: {any}\n", .{dir}),
-        }
-    }
+    try manager.install();
 }
