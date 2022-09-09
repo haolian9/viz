@@ -21,7 +21,7 @@ apis:
 suffixes: .vim, .lua
 
 optimizations:
-* squash/compact plugin dirs for faster rtp loopkup
+* squash/compact plugin dirs for faster rtp loopkup (上面可以看到 runtime.c 已经做了一些缓存工作)
     * ./ or after/
         * autoload
         * ftplugin
@@ -40,7 +40,7 @@ optimizations:
 
 spec.json
 * why json?
-    * zig has builtin support for json serialization
+    * zig has builtin support for json
     * i can not find a mature toml parser
     * MVP first
 * ref:
@@ -53,8 +53,8 @@ spec.json
     * depends
     * include/exclude
     * entry dir
-* storage layout
-    * disk path: author/package/version
+* filesystem layout
+    * ~~disk path: author/package/version~~
         * haolian9/x@rev # branch?
         * anotherone/x@rev
 

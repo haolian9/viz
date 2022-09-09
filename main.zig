@@ -12,7 +12,7 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    var spec = try specs.Spec.init(allocator, &.{.base}, "/home/haoliang/.local/share/nvim/viz", &.{
+    var spec = try specs.Spec.init(allocator, &.{.all}, "/home/haoliang/.local/share/nvim/viz", &.{
         .{ .profile = .base, .uri = "https://github.com/lewis6991/impatient.nvim" },
         .{ .profile = .base, .uri = "https://github.com/tpope/vim-repeat" },
         .{ .profile = .base, .uri = "https://github.com/phaazon/hop.nvim" },
@@ -48,10 +48,12 @@ pub fn main() !void {
     });
     defer spec.deinit();
 
-    // var manager = Manager{ .allocator = allocator, .spec = spec };
-    // try manager.install();
-
     var rtp = try specs.VimRtp.fromSpec(allocator, spec);
     defer rtp.deinit();
     try rtp.dump(std.io.getStdOut().writer());
+
+    // var manager = Manager{ .allocator = allocator, .spec = spec };
+    // try manager.install();
+    // try manager.collapse("/tmp/viz-collapsed");
+
 }

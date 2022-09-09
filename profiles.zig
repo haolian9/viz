@@ -29,13 +29,16 @@ const Part = enum(nbits) {
         }
         return val;
     }
-};
 
-const compound = std.ComptimeStringMap(bits, .{
-    .{ "base", Part.compound(&[_]Part{.base}) },
-    .{ "code", Part.compound(&[_]Part{ .base, .lsp, .treesitter, .code }) },
-    .{ "mostbeloved", Part.compound(&[_]Part{ .base, .lsp, .treesitter, .code, .python, .zig, .lua, .clang, .mostbeloved }) },
-});
+    fn compoundAll() bits {
+        var val: bits = 0;
+        const base: bits = 1;
+        inline for (std.meta.fields(Part)) |field| {
+            val |= base << field.value;
+        }
+        return val;
+    }
+};
 
 pub const Profile = enum(bits) {
 
@@ -67,6 +70,15 @@ pub const Profile = enum(bits) {
 
     // tier 5
     @"python.jedi" = as(.@"python.jedi", null),
+
+    all = as(null, &.{"all"}),
+
+    const compound = std.ComptimeStringMap(bits, .{
+        .{ "base", Part.compound(&[_]Part{.base}) },
+        .{ "code", Part.compound(&[_]Part{ .base, .lsp, .treesitter, .code }) },
+        .{ "mostbeloved", Part.compound(&[_]Part{ .base, .lsp, .treesitter, .code, .python, .zig, .lua, .clang, .mostbeloved }) },
+        .{ "all", Part.compoundAll() },
+    });
 
     pub fn has(self: Profile, another: Profile) bool {
         return @enumToInt(self) & @enumToInt(another) == @enumToInt(another);
@@ -106,12 +118,17 @@ pub const Profiles = struct {
 
 pub fn main() !void {
     print("base=({d}, {d}, {d}), code={d}, mostbeloved={d}\n", .{
-        compound.get("base").?,
+        Profile.compound.get("base").?,
         @enumToInt(Part.base),
         @enumToInt(Profile.base),
-        compound.get("code").?,
-        compound.get("mostbeloved").?,
+        Profile.compound.get("code").?,
+        Profile.compound.get("mostbeloved").?,
     });
+
+    inline for (std.meta.fields(Part)) |field| {
+        print("* {d}\n", .{field.value});
+    }
+    print("{d} {d}\n", .{Part.compoundAll(), @enumToInt(Profile.all)});
 }
 
 test "Profile api" {
@@ -124,3 +141,4 @@ test "Profile api" {
 }
 
 // asyncrun: zig test
+// asyncrun: zig run

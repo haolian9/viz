@@ -23,7 +23,7 @@ pub fn install(self: *Self) !void {
 
                     const stat: ?std.fs.File.Stat = root_dir.statFile(as) catch |err| switch (err) {
                         error.FileNotFound => null,
-                        else => unreachable,
+                        else => return err,
                     };
 
                     if (stat != null) {
@@ -63,7 +63,7 @@ pub fn update(self: *Self) !void {
 
                     const stat: ?std.fs.File.Stat = root_dir.statFile(plugin.name) catch |err| switch (err) {
                         error.FileNotFound => null,
-                        else => unreachable,
+                        else => return err,
                     };
 
                     var cmd = std.ArrayList([]const u8).init(self.allocator);
@@ -105,7 +105,7 @@ fn checkDirPlugin(self: Self, plugin: specs.Plugin, repo: specs.Repo.Dir) !void 
 
     const stat: ?std.fs.File.Stat = root_dir.statFile(repo.project) catch |err| switch (err) {
         error.FileNotFound => null,
-        else => unreachable,
+        else => return err,
     };
     if (stat) |_| {
         log.err("plugin {s}: not exists, dir={s}", .{ plugin.name, repo.uri });
@@ -114,7 +114,7 @@ fn checkDirPlugin(self: Self, plugin: specs.Plugin, repo: specs.Repo.Dir) !void 
     }
 }
 
-const executor = struct {
+const Executor = struct {
     // todo: process pool
     // todo: proxy setup when cloning
     // todo: libgit2 bind rather than childprocess, but it really matters?
@@ -133,21 +133,116 @@ fn run(self: Self, params: ExecuteParams) !void {
     try child.spawn();
     switch (try child.wait()) {
         .Exited => |exit_code| log.info("done: {d}", .{exit_code}),
-        .Signal => |signal| log.err("term.signal {d}", .{signal}),
-        .Stopped => |stopped| log.err("term.stopped {d}", .{stopped}),
         else => unreachable,
     }
 }
 
 fn mustOpenDir(path: []const u8) !std.fs.Dir {
-    // todo: possible simplification method: std.fs.Dir.makeOpenPath()
     return std.fs.openDirAbsolute(path, .{}) catch |err| open: {
         switch (err) {
             error.FileNotFound => {
                 try std.fs.makeDirAbsolute(path);
                 break :open try std.fs.openDirAbsolute(path, .{});
             },
-            else => unreachable,
+            else => return err,
         }
     };
+}
+
+const VimDirIterator = struct {
+    dir: std.fs.IterableDir,
+    iter: std.fs.IterableDir.Iterator,
+
+    const known_vim_dirs = std.ComptimeStringMap(void, .{
+        // vim
+        .{"autoload"},
+        .{"colors"},
+        .{"compiler"},
+        .{"ftplugin"},
+        .{"ftdetect"},
+        .{"indent"},
+        .{"plugin"},
+        .{"rplugin"},
+        .{"spell"},
+        .{"syntax"},
+        // todo: queries/x/*.scm
+        .{"queries"},
+        // todo: after/x/**.{lua,vim}
+        .{"after"},
+        // todo: lus/x/**.lua
+        .{"lua"},
+        // todo: ultisnips/pythonx
+    });
+
+    fn init(dir: std.fs.IterableDir) VimDirIterator {
+        return .{ .dir = dir, .iter = dir.iterate() };
+    }
+
+    fn next(self: *VimDirIterator) !?std.fs.IterableDir.Entry {
+        while (try self.iter.next()) |entry| {
+            switch (entry.kind) {
+                .Directory => {
+                    if (!known_vim_dirs.has(entry.name)) {
+                        log.debug("skipped {s}", .{entry.name});
+                        continue;
+                    }
+                    return entry;
+                },
+                else => continue,
+            }
+        }
+        return null;
+    }
+};
+
+pub fn collapse(self: Self, output_path: []const u8) !void {
+    var output_dir = try mustOpenDir(output_path);
+    defer output_dir.close();
+
+    var root_dir = try mustOpenDir(self.spec.root);
+    defer root_dir.close();
+
+    var output_subdirs = std.StringHashMap(std.fs.Dir).init(self.allocator);
+    defer output_subdirs.deinit();
+    defer {
+        var iter = output_subdirs.valueIterator();
+        while (iter.next()) |subdir| {
+            subdir.close();
+        }
+    }
+    inline for (VimDirIterator.known_vim_dirs.kvs) |kv| {
+        const gop = try output_subdirs.getOrPut(kv.key);
+        if (gop.found_existing) unreachable;
+        gop.value_ptr.* = output_dir.openDir(kv.key, .{}) catch |err| switch (err) {
+            error.FileNotFound => try output_dir.makeOpenPath(kv.key, .{}),
+            else => return err,
+        };
+    }
+
+    var iter = self.spec.iterate();
+    while (iter.next()) |plugin| {
+        var repo_dir: std.fs.IterableDir = switch (plugin.repo) {
+            .git => |repo| try root_dir.openIterableDir(if (repo.as) |as| as else repo.project, .{}),
+            .dir => |repo| try std.fs.openIterableDirAbsolute(repo.uri, .{}),
+        };
+        defer repo_dir.close();
+
+        var repo_iter = VimDirIterator.init(repo_dir);
+        while (try repo_iter.next()) |entry| {
+            var entry_dir = try repo_dir.dir.openIterableDir(entry.name, .{});
+            defer entry_dir.close();
+
+            // todo: copy tree
+            // const subdir = output_subdirs.get(entry.name) orelse unreachable;
+            var entry_iter = entry_dir.iterate();
+            while (try entry_iter.next()) |e2| {
+                switch (e2.kind) {
+                    .Directory => {
+                        log.debug("found {s}/{s}", .{ entry.name, e2.name });
+                    },
+                    else => {},
+                }
+            }
+        }
+    }
 }

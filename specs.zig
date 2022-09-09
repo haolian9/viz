@@ -187,7 +187,7 @@ pub const Spec = struct {
         }
     };
 
-    pub fn iterator(self: Spec) Iterator {
+    pub fn iterate(self: Spec) Iterator {
         return .{ .context = self, .index = 0 };
     }
 
@@ -229,7 +229,7 @@ pub const VimRtp = struct {
         var rtp = VimRtp.init(allocator);
         errdefer rtp.deinit();
 
-        var iter = spec.iterator();
+        var iter = spec.iterate();
         while (iter.next()) |plugin| {
             switch (plugin.repo) {
                 .git => |repo| {
